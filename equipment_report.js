@@ -1,0 +1,190 @@
+let DATA = [];
+let sortKey = 'created_at';
+let sortDir = -1;
+let filterText = '';
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function compare(a, b, key, type) {
+  let va = a[key] ?? '';
+  let vb = b[key] ?? '';
+  if (type === 'date') {
+    const tsKey = key === 'paired_at' ? 'paired_at_ts' : 'created_at_ts';
+    va = a[tsKey] || a[key] || '';
+    vb = b[tsKey] || b[key] || '';
+    return va.localeCompare(vb);
+  }
+  if (type === 'num') {
+    const na = parseFloat(String(va).replace(/[^0-9.-]/g, '')) || 0;
+    const nb = parseFloat(String(vb).replace(/[^0-9.-]/g, '')) || 0;
+    return na - nb;
+  }
+  return String(va).toLowerCase().localeCompare(String(vb).toLowerCase());
+}
+
+function rowMatches(row, q) {
+  if (!q) return true;
+  const searchKeys = [
+    'equipment_id', 'alias', 'type', 'classification', 'company_name', 'ownership',
+    'manufacturer', 'model', 'plate', 'serial_number', 'created_at',
+    'creator_name', 'creator_email', 'last_paired_device', 'part_number', 'part_name',
+    'paired_by_name', 'paired_by_email', 'paired_at'
+  ];
+  return searchKeys.some(k => String(row[k] ?? '').toLowerCase().includes(q));
+}
+
+function personCell(nameKey, emailKey) {
+  return function (row) {
+    const name = row[nameKey];
+    const email = row[emailKey];
+    if (name === '—' && email === '—') {
+      return '<span class="pairer empty">—</span>';
+    }
+    let html = '<div class="pairer">';
+    if (name !== '—') html += '<span class="name">' + esc(name) + '</span>';
+    if (email !== '—') html += '<span class="email">' + esc(email) + '</span>';
+    html += '</div>';
+    return html;
+  };
+}
+
+const creatorCell = personCell('creator_name', 'creator_email');
+const pairedByCell = personCell('paired_by_name', 'paired_by_email');
+
+function rowHtml(row) {
+  const deviceCell = row.last_paired_device === '—'
+    ? '<span class="device-id empty">—</span>'
+    : '<span class="device-id">' + esc(row.last_paired_device) + '</span>';
+  const partNum = row.part_number === '—'
+    ? '<span class="device-id empty">—</span>'
+    : '<span class="device-id">' + esc(row.part_number) + '</span>';
+  const partName = row.part_name === '—'
+    ? '<span class="empty">—</span>'
+    : esc(row.part_name);
+  return (
+    '<tr data-id="' + esc(row.equipment_id) + '">' +
+    '<td class="num">' + esc(row.equipment_id) + '</td>' +
+    '<td>' + esc(row.alias) + '</td>' +
+    '<td><span class="type-badge">' + esc(row.type) + '</span></td>' +
+    '<td>' + esc(row.classification) + '</td>' +
+    '<td>' + esc(row.company_name) + '</td>' +
+    '<td>' + esc(row.ownership) + '</td>' +
+    '<td>' + esc(row.manufacturer) + '</td>' +
+    '<td>' + esc(row.model) + '</td>' +
+    '<td>' + esc(row.plate) + '</td>' +
+    '<td>' + esc(row.serial_number) + '</td>' +
+    '<td class="num">' + esc(row.created_at) + '</td>' +
+    '<td>' + creatorCell(row) + '</td>' +
+    '<td>' + deviceCell + '</td>' +
+    '<td>' + partNum + '</td>' +
+    '<td>' + partName + '</td>' +
+    '<td>' + pairedByCell(row) + '</td>' +
+    '<td class="num">' + esc(row.paired_at) + '</td>' +
+    '</tr>'
+  );
+}
+
+function render() {
+  const q = filterText.trim().toLowerCase();
+  const th = document.querySelector('th[data-key="' + sortKey + '"]');
+  const type = th ? th.dataset.type || 'text' : 'text';
+  const sorted = [...DATA].sort((a, b) => sortDir * compare(a, b, sortKey, type));
+  const tbody = document.getElementById('tbody');
+  let visible = 0;
+  let html = '';
+  for (const row of sorted) {
+    if (!rowMatches(row, q)) continue;
+    visible++;
+    html += rowHtml(row);
+  }
+  tbody.innerHTML = html || '<tr><td colspan="16" class="loading-overlay">No equipment in this date range.</td></tr>';
+  document.getElementById('visible-count').textContent = visible + ' shown' + (q ? ' (filtered)' : '');
+  document.querySelectorAll('thead th').forEach(h => {
+    h.classList.toggle('sorted', h.dataset.key === sortKey);
+    const icon = h.querySelector('.sort-icon');
+    if (h.dataset.key === sortKey) {
+      icon.textContent = sortDir > 0 ? '↑' : '↓';
+    } else {
+      icon.textContent = '↕';
+    }
+  });
+}
+
+function updateMeta(from, to, count) {
+  document.getElementById('page-title').textContent =
+    'Equipment created (' + from + ' to ' + to + ')';
+  document.getElementById('meta-line').innerHTML =
+    '<strong>' + count + '</strong> records · Live from read replica · Last pairing from equipment_installations · Part info from devices_new / parts_inventory';
+}
+
+async function fetchData() {
+  const from = document.getElementById('date-from').value;
+  const to = document.getElementById('date-to').value;
+  const btn = document.getElementById('fetch-btn');
+  const status = document.getElementById('status-msg');
+  if (!from || !to) {
+    status.textContent = 'Select both dates.';
+    status.className = 'status-msg error';
+    return;
+  }
+  if (from > to) {
+    status.textContent = '"From" must be on or before "To".';
+    status.className = 'status-msg error';
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = 'Loading…';
+  status.className = 'status-msg';
+  document.getElementById('tbody').innerHTML =
+    '<tr><td colspan="16" class="loading-overlay">Fetching from database…</td></tr>';
+  try {
+    const url = '/api/equipment?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+    const resp = await fetch(url);
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || resp.statusText);
+    DATA = body.rows || [];
+    updateMeta(body.from, body.to, body.count);
+    status.textContent = 'Updated ' + new Date().toLocaleTimeString();
+    status.className = 'status-msg';
+    render();
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'status-msg error';
+    document.getElementById('tbody').innerHTML =
+      '<tr><td colspan="16" class="loading-overlay">Failed to load data.</td></tr>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('search').addEventListener('input', e => {
+  filterText = e.target.value;
+  render();
+});
+
+document.querySelectorAll('thead th').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (sortKey === key) sortDir *= -1;
+    else { sortKey = key; sortDir = 1; }
+    if (key === 'created_at' || key === 'paired_at') sortDir = -1;
+    render();
+  });
+});
+
+document.getElementById('fetch-btn').addEventListener('click', fetchData);
+
+(function setDefaultDates() {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 3);
+  const fmt = d => d.toISOString().slice(0, 10);
+  document.getElementById('date-from').value = fmt(from);
+  document.getElementById('date-to').value = fmt(to);
+})();
+
+fetchData();
