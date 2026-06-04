@@ -42,7 +42,7 @@ Open [http://127.0.0.1:5555/](http://127.0.0.1:5555/) (or the host/port from `FL
 
 ## GitHub Pages (static UI)
 
-The report UI is published at [https://fieldin-ops.github.io/equipment-report/](https://fieldin-ops.github.io/equipment-report/). GitHub Pages serves only `index.html` and `equipment_report.js`; the Flask API still runs locally.
+The report UI is published at [https://fieldin-ops.github.io/equipment-report/](https://fieldin-ops.github.io/equipment-report/) (same setup as [canbus-kpi-dashboard](https://fieldin-ops.github.io/canbus-kpi-dashboard/): `main` branch, site root). GitHub Pages serves only `index.html` and `equipment_report.js`; the Flask API still runs locally. The repository must be **public** for Pages on the org plan.
 
 1. Start the local server (VPN + MySQL credentials required).
 2. Open the Pages URL in your browser.
