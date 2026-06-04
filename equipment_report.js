@@ -78,6 +78,10 @@ const DateRangePicker = {
       e.stopPropagation();
       this.shiftView(1);
     });
+    document.getElementById('dr-apply').addEventListener('click', e => {
+      e.stopPropagation();
+      this.applySelection();
+    });
     document.addEventListener('click', e => {
       if (!this.wrap.contains(e.target)) this.togglePopup(false);
     });
@@ -143,6 +147,7 @@ const DateRangePicker = {
       this.start = day;
       this.end = null;
       this.hover = null;
+      this.updateApplyBtn();
       this.updateHint();
       this.render();
       return;
@@ -154,9 +159,19 @@ const DateRangePicker = {
     this.end = b;
     this.pendingStart = null;
     this.hover = null;
-    this.syncInputs();
+    this.updateApplyBtn();
     this.updateHint();
     this.render();
+  },
+
+  updateApplyBtn() {
+    const btn = document.getElementById('dr-apply');
+    if (btn) btn.disabled = !(this.start && this.end);
+  },
+
+  applySelection() {
+    if (!this.start || !this.end) return;
+    this.syncInputs();
     this.togglePopup(false);
   },
 
