@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = 'https://machines-api-629318127645.europe-west1.run.app';
+const DEFAULT_API_BASE = 'http://127.0.0.1:5555';
 const API_STORAGE_KEY = 'equipment_report_api_base';
 
 const MONTH_NAMES = [
