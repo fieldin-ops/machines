@@ -287,6 +287,117 @@ let DATA = [];
 let sortKey = 'created_at';
 let sortDir = -1;
 let filterText = '';
+let chartDayFilter = null;
+
+function createdDateIso(row) {
+  const raw = String(row.created_at ?? '').trim();
+  if (!raw || raw === '—') return null;
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
+function enumerateDaysInRange(fromIso, toIso) {
+  const days = [];
+  const from = parseIsoDate(fromIso);
+  const to = parseIsoDate(toIso);
+  if (!from || !to) return days;
+  const cur = new Date(from);
+  const end = startOfDay(to);
+  while (cur <= end) {
+    days.push(toIsoDate(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return days;
+}
+
+function buildDailyCounts() {
+  const from = document.getElementById('date-from').value;
+  const to = document.getElementById('date-to').value;
+  const days = enumerateDaysInRange(from, to);
+  const counts = Object.fromEntries(days.map(d => [d, 0]));
+  for (const row of DATA) {
+    const iso = createdDateIso(row);
+    if (iso && Object.prototype.hasOwnProperty.call(counts, iso)) {
+      counts[iso]++;
+    }
+  }
+  return days.map(date => ({ date, count: counts[date] }));
+}
+
+function formatChartLabel(iso) {
+  const d = parseIsoDate(iso);
+  if (!d) return iso;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function renderTrendChart() {
+  const container = document.getElementById('trend-chart-bars');
+  const clearBtn = document.getElementById('trend-chart-clear');
+  const hint = document.getElementById('trend-chart-hint');
+  if (!container) return;
+
+  const from = document.getElementById('date-from').value;
+  const to = document.getElementById('date-to').value;
+  if (!from || !to) {
+    container.innerHTML = '<p class="trend-chart-empty">Select a date range and fetch data</p>';
+    if (clearBtn) clearBtn.hidden = true;
+    if (hint) hint.textContent = 'Click a bar to filter the table by that day · click again to show all';
+    return;
+  }
+
+  const series = buildDailyCounts();
+  if (!series.length) {
+    container.innerHTML = '<p class="trend-chart-empty">No days in range</p>';
+    if (clearBtn) clearBtn.hidden = true;
+    return;
+  }
+
+  const maxCount = Math.max(1, ...series.map(s => s.count));
+  container.innerHTML = series.map(({ date, count }) =>
+    trendBarHtml(date, count, maxCount)
+  ).join('');
+
+  container.querySelectorAll('.trend-bar-col').forEach(col => {
+    col.addEventListener('click', () => {
+      const day = col.dataset.date;
+      if (!day) return;
+      chartDayFilter = chartDayFilter === day ? null : day;
+      render();
+    });
+  });
+
+  if (clearBtn) {
+    clearBtn.hidden = !chartDayFilter;
+    clearBtn.onclick = () => {
+      chartDayFilter = null;
+      render();
+    };
+  }
+  if (hint) {
+    hint.textContent = chartDayFilter
+      ? 'Showing machines created on ' + formatChartLabel(chartDayFilter) + ' · click the bar or Clear to show all'
+      : 'Click a bar to filter the table by that day · click again to show all';
+  }
+}
+
+function trendBarHtml(date, count, maxCount) {
+  const pct = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
+  const height = count === 0 ? 2 : Math.max(8, pct);
+  const selected = chartDayFilter === date;
+  const cls = [
+    'trend-bar-col',
+    count === 0 ? 'zero' : '',
+    selected ? 'selected' : ''
+  ].filter(Boolean).join(' ');
+  return (
+    '<div class="' + cls + '" data-date="' + esc(date) + '" role="button" tabindex="0" ' +
+    'aria-pressed="' + (selected ? 'true' : 'false') + '" title="' + esc(date) + ': ' + count + ' machine' + (count === 1 ? '' : 's') + '">' +
+    '<span class="trend-bar-count">' + (count > 0 ? count : '') + '</span>' +
+    '<div class="trend-bar-track"><div class="trend-bar" style="height:' + height + '%"></div></div>' +
+    '<span class="trend-bar-label">' + esc(formatChartLabel(date)) + '</span>' +
+    '</div>'
+  );
+}
 
 function normalizeApiBase(url) {
   return String(url || '').trim().replace(/\/+$/, '');
@@ -520,6 +631,14 @@ function rowHtml(row) {
   );
 }
 
+function rowPassesFilters(row, q) {
+  if (chartDayFilter) {
+    const iso = createdDateIso(row);
+    if (iso !== chartDayFilter) return false;
+  }
+  return rowMatches(row, q);
+}
+
 function render() {
   const q = filterText.trim().toLowerCase();
   const th = document.querySelector('th[data-key="' + sortKey + '"]');
@@ -529,12 +648,19 @@ function render() {
   let visible = 0;
   let html = '';
   for (const row of sorted) {
-    if (!rowMatches(row, q)) continue;
+    if (!rowPassesFilters(row, q)) continue;
     visible++;
     html += rowHtml(row);
   }
-  tbody.innerHTML = html || '<tr><td colspan="16" class="loading-overlay">No equipment in this date range.</td></tr>';
-  document.getElementById('visible-count').textContent = visible + ' shown' + (q ? ' (filtered)' : '');
+  const noRowsMsg = chartDayFilter
+    ? 'No equipment created on ' + formatChartLabel(chartDayFilter) + (q ? ' matching search' : '') + '.'
+    : 'No equipment in this date range.';
+  tbody.innerHTML = html || '<tr><td colspan="16" class="loading-overlay">' + esc(noRowsMsg) + '</td></tr>';
+  const filterBits = [];
+  if (chartDayFilter) filterBits.push('day');
+  if (q) filterBits.push('search');
+  document.getElementById('visible-count').textContent =
+    visible + ' shown' + (filterBits.length ? ' (' + filterBits.join(', ') + ' filtered)' : '');
   document.querySelectorAll('thead th').forEach(h => {
     h.classList.toggle('sorted', h.dataset.key === sortKey);
     const icon = h.querySelector('.sort-icon');
@@ -544,6 +670,7 @@ function render() {
       icon.textContent = '↕';
     }
   });
+  renderTrendChart();
 }
 
 function updateMeta(from, to, count) {
@@ -579,6 +706,7 @@ async function fetchData() {
     const body = await resp.json();
     if (!resp.ok) throw new Error(body.error || resp.statusText);
     DATA = body.rows || [];
+    chartDayFilter = null;
     updateMeta(body.from, body.to, body.count);
     status.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' · API ' + getApiBase();
     status.className = 'status-msg';
