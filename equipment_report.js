@@ -488,7 +488,7 @@ function render() {
 
 function updateMeta(from, to, count) {
   document.getElementById('page-title').textContent =
-    'Equipment created (' + from + ' to ' + to + ')';
+    'Asset Report (' + from + ' to ' + to + ')';
   document.getElementById('meta-line').innerHTML =
     '<strong>' + count + '</strong> records · Live from read replica · Last pairing from equipment_installations · Part info from devices_new / parts_inventory';
 }
