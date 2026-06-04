@@ -1,0 +1,6 @@
+*.html
+*.js
+*.css
+.git
+.env
+__pycache__
