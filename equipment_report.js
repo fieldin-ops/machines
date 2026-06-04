@@ -62,9 +62,13 @@ const DateRangePicker = {
     const today = startOfDay(new Date());
     this.viewMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    this.display.addEventListener('click', e => {
+    const openFromField = e => {
       e.stopPropagation();
       this.togglePopup(!this.open);
+    };
+    this.display.addEventListener('click', openFromField);
+    this.display.addEventListener('focus', () => {
+      if (!this.open) this.togglePopup(true);
     });
     document.getElementById('dr-prev').addEventListener('click', e => {
       e.stopPropagation();
@@ -102,6 +106,9 @@ const DateRangePicker = {
     const next = show !== undefined ? show : !this.open;
     this.open = next;
     this.popup.classList.toggle('open', next);
+    this.wrap.classList.toggle('dr-open', next);
+    const panel = document.getElementById('filter-panel');
+    if (panel) panel.classList.toggle('dr-picker-open', next);
     this.display.setAttribute('aria-expanded', String(next));
     if (next) {
       if (this.end) {
@@ -359,7 +366,7 @@ async function loadFilterOptions() {
 function apiUnreachableMessage(err) {
   const base = getApiBase();
   const hint =
-    'Start the local API server (from the equipment-report repo): python3 equipment_server.py. ' +
+    'Start the local API server (from the machines repo): python3 equipment_server.py. ' +
     'Override API URL with ?api=http://127.0.0.1:5555';
   if (!err) return 'Cannot reach API at ' + base + '. ' + hint;
   const msg = String(err.message || err);
@@ -397,7 +404,7 @@ function rowMatches(row, q) {
   const searchKeys = [
     'equipment_id', 'alias', 'type', 'classification', 'company_name', 'ownership',
     'manufacturer', 'model', 'plate', 'serial_number', 'created_at',
-    'creator_name', 'creator_email', 'last_paired_device', 'part_number', 'part_name',
+    'creator_name', 'creator_email', 'last_paired_device', 'part_name',
     'paired_by_name', 'paired_by_email', 'paired_at'
   ];
   return searchKeys.some(k => String(row[k] ?? '').toLowerCase().includes(q));
@@ -425,9 +432,6 @@ function rowHtml(row) {
   const deviceCell = row.last_paired_device === '—'
     ? '<span class="device-id empty">—</span>'
     : '<span class="device-id">' + esc(row.last_paired_device) + '</span>';
-  const partNum = row.part_number === '—'
-    ? '<span class="device-id empty">—</span>'
-    : '<span class="device-id">' + esc(row.part_number) + '</span>';
   const partName = row.part_name === '—'
     ? '<span class="empty">—</span>'
     : esc(row.part_name);
@@ -446,7 +450,6 @@ function rowHtml(row) {
     '<td class="num">' + esc(row.created_at) + '</td>' +
     '<td>' + creatorCell(row) + '</td>' +
     '<td>' + deviceCell + '</td>' +
-    '<td>' + partNum + '</td>' +
     '<td>' + partName + '</td>' +
     '<td>' + pairedByCell(row) + '</td>' +
     '<td class="num">' + esc(row.paired_at) + '</td>' +

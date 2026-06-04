@@ -135,12 +135,18 @@
 
   /* Unified filter panel */
   .filter-panel {
+    position: relative;
+    z-index: 1;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.05);
     padding: 16px 18px;
     margin-bottom: 16px;
+    overflow: visible;
+  }
+  .filter-panel.dr-picker-open {
+    z-index: 100;
   }
   .filter-panel-grid {
     display: grid;
@@ -200,7 +206,8 @@
   .status-msg.error { color: #b91c1c; }
 
   /* Date range picker */
-  .dr-wrap { position: relative; }
+  .dr-wrap { position: relative; z-index: 1; }
+  .dr-wrap.dr-open { z-index: 101; }
   .dr-input {
     width: 100%;
     padding: 10px 36px 10px 12px;
@@ -341,13 +348,13 @@
     }
     .filter-panel-grid .dr-field { grid-column: 1 / -1; }
     .dr-popup { min-width: min(520px, calc(100vw - 48px)); }
-    .dr-calendars { flex-direction: column; }
   }
   @media (max-width: 640px) {
     .wrap { padding: 16px 12px; }
     h1 { font-size: 1.25rem; }
     .filter-panel-grid { grid-template-columns: 1fr; }
     .dr-popup { left: 0; right: 0; min-width: 0; width: 100%; }
+    .dr-calendars { flex-direction: column; }
   }
 </style>
 </head>
@@ -437,7 +444,6 @@
           <th data-key="created_at" data-type="date">Created<span class="sort-icon">↕</span></th>
           <th data-key="creator_name">Creator<span class="sort-icon">↕</span></th>
           <th data-key="last_paired_device">Last Paired Device<span class="sort-icon">↕</span></th>
-          <th data-key="part_number">Part Number<span class="sort-icon">↕</span></th>
           <th data-key="part_name">Part Name<span class="sort-icon">↕</span></th>
           <th data-key="paired_by_name">Paired By<span class="sort-icon">↕</span></th>
           <th data-key="paired_at" data-type="date">Paired At<span class="sort-icon">↕</span></th>
