@@ -78,6 +78,19 @@ const DateRangePicker = {
       e.stopPropagation();
       this.shiftView(1);
     });
+    this.popup.addEventListener('click', e => {
+      const btn = e.target.closest('.dr-day');
+      if (btn && btn.dataset.iso) {
+        e.stopPropagation();
+        this.onDayClick(parseIsoDate(btn.dataset.iso));
+      }
+    });
+    this.popup.addEventListener('mouseover', e => {
+      const btn = e.target.closest('.dr-day');
+      if (btn && btn.dataset.iso) {
+        this.onDayHover(parseIsoDate(btn.dataset.iso));
+      }
+    });
     document.getElementById('dr-apply').addEventListener('click', e => {
       e.stopPropagation();
       this.applySelection();
@@ -235,15 +248,6 @@ const DateRangePicker = {
       return '<button type="button" class="' + cls + '" data-iso="' + toIsoDate(date) + '">' + label + '</button>';
     }).join('');
     container.innerHTML = weekdays + '<div class="dr-days">' + days + '</div>';
-    container.querySelectorAll('.dr-day').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        this.onDayClick(parseIsoDate(btn.dataset.iso));
-      });
-      btn.addEventListener('mouseenter', () => {
-        this.onDayHover(parseIsoDate(btn.dataset.iso));
-      });
-    });
   },
 
   render() {
