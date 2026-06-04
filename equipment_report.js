@@ -133,6 +133,8 @@ const DateRangePicker = {
         this.viewMonth.setMonth(this.viewMonth.getMonth() - 1);
       }
       this.pendingStart = null;
+      this._renderedLeft = null;
+      this._renderedRight = null;
       this.updateHint();
       this.render();
     }
@@ -140,6 +142,8 @@ const DateRangePicker = {
 
   shiftView(delta) {
     this.viewMonth.setMonth(this.viewMonth.getMonth() + delta);
+    this._renderedLeft = null;
+    this._renderedRight = null;
     this.render();
   },
 
@@ -245,7 +249,7 @@ const DateRangePicker = {
     const days = cells.map(({ date, inMonth }) => {
       const label = date.getDate();
       const cls = this.dayClass(date, inMonth);
-      return '<button type="button" class="' + cls + '" data-iso="' + toIsoDate(date) + '">' + label + '</button>';
+      return '<button type="button" class="' + cls + '" data-iso="' + toIsoDate(date) + '" data-inmonth="' + (inMonth ? '1' : '0') + '">' + label + '</button>';
     }).join('');
     container.innerHTML = weekdays + '<div class="dr-days">' + days + '</div>';
   },
@@ -255,8 +259,27 @@ const DateRangePicker = {
     const right = new Date(this.viewMonth.getFullYear(), this.viewMonth.getMonth() + 1, 1);
     this.titleLeft.textContent = MONTH_NAMES[left.getMonth()] + ' ' + left.getFullYear();
     this.titleRight.textContent = MONTH_NAMES[right.getMonth()] + ' ' + right.getFullYear();
-    this.renderMonth(this.calLeft, left.getFullYear(), left.getMonth());
-    this.renderMonth(this.calRight, right.getFullYear(), right.getMonth());
+
+    const leftKey = left.getFullYear() + '-' + left.getMonth();
+    const rightKey = right.getFullYear() + '-' + right.getMonth();
+    if (this._renderedLeft !== leftKey) {
+      this.renderMonth(this.calLeft, left.getFullYear(), left.getMonth());
+      this._renderedLeft = leftKey;
+    }
+    if (this._renderedRight !== rightKey) {
+      this.renderMonth(this.calRight, right.getFullYear(), right.getMonth());
+      this._renderedRight = rightKey;
+    }
+    this.updateDayStyles();
+  },
+
+  updateDayStyles() {
+    this.popup.querySelectorAll('.dr-day').forEach(btn => {
+      const date = parseIsoDate(btn.dataset.iso);
+      if (!date) return;
+      const inMonth = btn.dataset.inmonth === '1';
+      btn.className = this.dayClass(date, inMonth);
+    });
   }
 };
 
