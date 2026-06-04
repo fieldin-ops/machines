@@ -1,7 +1,49 @@
+const DEFAULT_API_BASE = 'http://127.0.0.1:5555';
+const API_STORAGE_KEY = 'equipment_report_api_base';
+
 let DATA = [];
 let sortKey = 'created_at';
 let sortDir = -1;
 let filterText = '';
+
+function normalizeApiBase(url) {
+  return String(url || '').trim().replace(/\/+$/, '');
+}
+
+function getApiBase() {
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get('api');
+  if (fromQuery) {
+    const base = normalizeApiBase(fromQuery);
+    try {
+      localStorage.setItem(API_STORAGE_KEY, base);
+    } catch (_) { /* private mode */ }
+    return base;
+  }
+  try {
+    const stored = localStorage.getItem(API_STORAGE_KEY);
+    if (stored) return normalizeApiBase(stored);
+  } catch (_) { /* private mode */ }
+  return DEFAULT_API_BASE;
+}
+
+function equipmentApiUrl(from, to) {
+  const base = getApiBase();
+  return base + '/api/equipment?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+}
+
+function apiUnreachableMessage(err) {
+  const base = getApiBase();
+  const hint =
+    'Start the local API server (from the equipment-report repo): python3 equipment_server.py. ' +
+    'Override API URL with ?api=http://127.0.0.1:5555';
+  if (!err) return 'Cannot reach API at ' + base + '. ' + hint;
+  const msg = String(err.message || err);
+  if (msg === 'Failed to fetch' || err.name === 'TypeError') {
+    return 'Cannot reach API at ' + base + '. ' + hint;
+  }
+  return msg;
+}
 
 function esc(s) {
   const d = document.createElement('div');
@@ -142,20 +184,21 @@ async function fetchData() {
   document.getElementById('tbody').innerHTML =
     '<tr><td colspan="16" class="loading-overlay">Fetching from database…</td></tr>';
   try {
-    const url = '/api/equipment?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+    const url = equipmentApiUrl(from, to);
     const resp = await fetch(url);
     const body = await resp.json();
     if (!resp.ok) throw new Error(body.error || resp.statusText);
     DATA = body.rows || [];
     updateMeta(body.from, body.to, body.count);
-    status.textContent = 'Updated ' + new Date().toLocaleTimeString();
+    status.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' · API ' + getApiBase();
     status.className = 'status-msg';
     render();
   } catch (err) {
-    status.textContent = err.message;
+    status.textContent = apiUnreachableMessage(err);
     status.className = 'status-msg error';
     document.getElementById('tbody').innerHTML =
-      '<tr><td colspan="16" class="loading-overlay">Failed to load data.</td></tr>';
+      '<tr><td colspan="16" class="loading-overlay">Failed to load data. ' +
+      esc(apiUnreachableMessage(err)) + '</td></tr>';
   } finally {
     btn.disabled = false;
   }

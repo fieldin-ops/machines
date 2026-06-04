@@ -13,8 +13,9 @@ from flask import Flask, jsonify, request, send_file
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
-HTML_PATH = BASE_DIR / "equipment_report.html"
+HTML_PATH = BASE_DIR / "index.html"
 JS_PATH = BASE_DIR / "equipment_report.js"
+LEGACY_HTML_PATH = BASE_DIR / "equipment_report.html"
 
 HOST = os.environ["MYSQL_HOST"]
 PORT = int(os.environ.get("MYSQL_PORT", "3306"))
@@ -179,7 +180,14 @@ def fetch_equipment(from_date, to_date):
 @app.after_request
 def cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return resp
+
+
+@app.route("/api/equipment", methods=["OPTIONS"])
+def api_equipment_options():
+    return "", 204
 
 
 @app.get("/")
@@ -187,6 +195,13 @@ def index():
     return send_file(HTML_PATH, mimetype="text/html")
 
 
+@app.get("/equipment_report.html")
+def legacy_html():
+    path = LEGACY_HTML_PATH if LEGACY_HTML_PATH.is_file() else HTML_PATH
+    return send_file(path, mimetype="text/html")
+
+
+@app.get("/equipment_report.js")
 @app.get("/report.js")
 def report_js():
     return send_file(JS_PATH, mimetype="application/javascript")
