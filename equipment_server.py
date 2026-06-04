@@ -24,7 +24,37 @@ DB = os.environ["MYSQL_DATABASE"]
 USER = os.environ["MYSQL_USER"]
 PASSWORD = os.environ["MYSQL_PASSWORD"]
 
-EQUIPMENT_SQL = """
+# parts_inventory.on_hw: ble_ep/ble_viking = beacons; ERM/F1/SML5.5b = telematics families.
+# Dropdown and display use main device SKUs only (exclude cables/antennas/harnesses).
+BEACON_ON_HW = ("ble_ep", "ble_viking")
+TELEMATICS_ON_HW = ("ERM", "F1", "SML5.5b")
+TELEMATICS_DEVICE_MODELS = (
+    "erm",
+    "f1",
+    "f1_lte",
+    "uu3",
+    "sml5",
+    "sml5.5a",
+    "sml5.5b",
+    "SML5.5b_N",
+    "f2",
+    "f2f",
+    "sml4",
+)
+BEACON_DEVICE_MODELS = ("ble", "ble_ep", "ble_viking", "rf")
+
+_DEVICE_MODELS_SQL = ", ".join(
+    f"'{m}'"
+    for m in (*TELEMATICS_DEVICE_MODELS, *BEACON_DEVICE_MODELS)
+)
+_PART_NAME_EXPR = f"""
+  CASE
+    WHEN dn.device_model IN ({_DEVICE_MODELS_SQL})
+    THEN pi.part_display_ns
+    ELSE NULL
+  END"""
+
+EQUIPMENT_SQL = f"""
 SELECT
   e.id AS equipment_id,
   e.alias, e.type, e.classification, e.plate, e.model,
@@ -40,7 +70,7 @@ SELECT
   pu.email AS paired_by_email,
   FROM_UNIXTIME(ei.time_from) AS paired_at,
   dn.part_number,
-  pi.part_display_ns AS part_name
+{_PART_NAME_EXPR} AS part_name
 FROM fieldin.equipment e
 LEFT JOIN fieldin.companies c ON c.id = e.company_id
 LEFT JOIN fieldin.equipment_manufacturers eman ON eman.id = e.manufacturer_id
@@ -82,7 +112,7 @@ FILTER_SPECS = {
         ")"
     ),
     "company": " AND LOWER(COALESCE(c.name,'')) LIKE %s",
-    "part_name": " AND LOWER(COALESCE(pi.part_display_ns,'')) LIKE %s",
+    "part_name": f" AND LOWER(COALESCE({_PART_NAME_EXPR.strip()},'')) LIKE %s",
     "paired_by": (
         " AND ("
         "LOWER(TRIM(CONCAT(COALESCE(pu.forename,''),' ',COALESCE(pu.surname,'')))) LIKE %s "
@@ -113,10 +143,21 @@ WHERE u.id IN (
 ORDER BY name, email
 """
 
-SQL_PART_NAMES = """
+SQL_PART_NAMES = f"""
 SELECT DISTINCT pi.part_display_ns AS name
 FROM fieldin.parts_inventory pi
 WHERE pi.part_display_ns IS NOT NULL AND TRIM(pi.part_display_ns) != ''
+  AND (
+    pi.on_hw IN ({", ".join(repr(h) for h in BEACON_ON_HW)})
+    OR (
+      pi.on_hw IN ({", ".join(repr(h) for h in TELEMATICS_ON_HW)})
+      AND (
+        pi.on_hw = 'ERM'
+        OR (pi.on_hw = 'F1' AND pi.part_name_ns REGEXP '^(10004|1004)')
+        OR (pi.on_hw = 'SML5.5b' AND pi.part_name_ns = '20009')
+      )
+    )
+  )
 ORDER BY pi.part_display_ns
 """
 
