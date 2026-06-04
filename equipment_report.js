@@ -27,9 +27,100 @@ function getApiBase() {
   return DEFAULT_API_BASE;
 }
 
+function filterParams() {
+  const company = document.getElementById('filter-company').value.trim();
+  const creator = document.getElementById('filter-creator').value.trim();
+  const partName = document.getElementById('filter-part-name').value.trim();
+  const pairedBy = document.getElementById('filter-paired-by').value.trim();
+  const params = new URLSearchParams();
+  if (company) params.set('company', company);
+  if (creator) params.set('creator', creator);
+  if (partName) params.set('part_name', partName);
+  if (pairedBy) params.set('paired_by', pairedBy);
+  return params;
+}
+
 function equipmentApiUrl(from, to) {
   const base = getApiBase();
-  return base + '/api/equipment?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+  const params = new URLSearchParams({ from, to });
+  const filters = filterParams();
+  filters.forEach((v, k) => params.set(k, v));
+  return base + '/api/equipment?' + params.toString();
+}
+
+function filterOptionsUrl() {
+  return getApiBase() + '/api/filter-options';
+}
+
+function clearDatalist(id) {
+  const el = document.getElementById(id);
+  while (el.firstChild) el.removeChild(el.firstChild);
+}
+
+function fillDatalist(id, values) {
+  const el = document.getElementById(id);
+  for (const v of values) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    el.appendChild(opt);
+  }
+}
+
+function fillPersonDatalist(id, people) {
+  const el = document.getElementById(id);
+  for (const p of people) {
+    const opt = document.createElement('option');
+    opt.value = p.email;
+    opt.label = p.name;
+    el.appendChild(opt);
+  }
+}
+
+function fillPartSelect(names) {
+  const sel = document.getElementById('filter-part-name');
+  sel.innerHTML = '<option value="">All</option>';
+  for (const name of names) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  }
+}
+
+function setFiltersEnabled(enabled) {
+  ['filter-company', 'filter-creator', 'filter-part-name', 'filter-paired-by'].forEach(id => {
+    document.getElementById(id).disabled = !enabled;
+  });
+}
+
+async function loadFilterOptions() {
+  const status = document.getElementById('filters-status');
+  setFiltersEnabled(false);
+  status.textContent = 'Loading filter options…';
+  try {
+    const resp = await fetch(filterOptionsUrl());
+    const body = await resp.json();
+    if (!resp.ok) throw new Error(body.error || resp.statusText);
+    clearDatalist('company-list');
+    clearDatalist('creator-list');
+    clearDatalist('paired-by-list');
+    fillDatalist('company-list', body.companies || []);
+    fillPersonDatalist('creator-list', body.creators || []);
+    fillPartSelect(body.part_names || []);
+    fillPersonDatalist('paired-by-list', body.paired_by || []);
+    const nCo = (body.companies || []).length;
+    const nCr = (body.creators || []).length;
+    const nPn = (body.part_names || []).length;
+    const nPb = (body.paired_by || []).length;
+    status.textContent =
+      nCo + ' companies · ' + nCr + ' creators · ' + nPn + ' part names · ' + nPb + ' paired-by users';
+    setFiltersEnabled(true);
+    return body;
+  } catch (err) {
+    status.textContent = 'Filter options unavailable: ' + apiUnreachableMessage(err);
+    setFiltersEnabled(true);
+    return null;
+  }
 }
 
 function apiUnreachableMessage(err) {
@@ -230,4 +321,7 @@ document.getElementById('fetch-btn').addEventListener('click', fetchData);
   document.getElementById('date-to').value = fmt(to);
 })();
 
-fetchData();
+(async function init() {
+  await loadFilterOptions();
+  fetchData();
+})();

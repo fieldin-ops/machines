@@ -3,6 +3,7 @@
 
 import os
 import re
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -69,8 +70,72 @@ LEFT JOIN fieldin.parts_inventory pi ON pi.part_name_ns = dn.part_number
 WHERE e.created_at >= UNIX_TIMESTAMP(%s)
   AND e.created_at <= UNIX_TIMESTAMP(%s)
   AND (e.deleted_at IS NULL OR e.deleted_at = 0)
-ORDER BY e.created_at DESC
 """
+
+ORDER_BY = "ORDER BY e.created_at DESC"
+
+FILTER_SPECS = {
+    "creator": (
+        " AND ("
+        "LOWER(TRIM(CONCAT(COALESCE(u.forename,''),' ',COALESCE(u.surname,'')))) LIKE %s "
+        "OR LOWER(COALESCE(u.email,'')) LIKE %s"
+        ")"
+    ),
+    "company": " AND LOWER(COALESCE(c.name,'')) LIKE %s",
+    "part_name": " AND LOWER(COALESCE(pi.part_display_ns,'')) LIKE %s",
+    "paired_by": (
+        " AND ("
+        "LOWER(TRIM(CONCAT(COALESCE(pu.forename,''),' ',COALESCE(pu.surname,'')))) LIKE %s "
+        "OR LOWER(COALESCE(pu.email,'')) LIKE %s"
+        ")"
+    ),
+}
+
+SQL_COMPANIES = """
+SELECT DISTINCT c.name AS name
+FROM fieldin.companies c
+WHERE c.name IS NOT NULL AND TRIM(c.name) != ''
+ORDER BY c.name
+"""
+
+SQL_CREATORS = """
+SELECT DISTINCT
+  TRIM(CONCAT(COALESCE(u.forename,''),' ',COALESCE(u.surname,''))) AS name,
+  u.email AS email
+FROM fieldin.users u
+WHERE u.id IN (
+  SELECT DISTINCT el.user_id
+  FROM fieldin.equipment_logs el
+  WHERE JSON_CONTAINS_PATH(el.`change`, 'one', '$.inserted')
+    AND el.user_id IS NOT NULL
+)
+  AND u.email IS NOT NULL AND TRIM(u.email) != ''
+ORDER BY name, email
+"""
+
+SQL_PART_NAMES = """
+SELECT DISTINCT pi.part_display_ns AS name
+FROM fieldin.parts_inventory pi
+WHERE pi.part_display_ns IS NOT NULL AND TRIM(pi.part_display_ns) != ''
+ORDER BY pi.part_display_ns
+"""
+
+SQL_PAIRED_BY = """
+SELECT DISTINCT
+  TRIM(CONCAT(COALESCE(u.forename,''),' ',COALESCE(u.surname,''))) AS name,
+  u.email AS email
+FROM fieldin.users u
+WHERE u.id IN (
+  SELECT DISTINCT ei.user_id
+  FROM fieldin.equipment_installations ei
+  WHERE ei.user_id IS NOT NULL
+)
+  AND u.email IS NOT NULL AND TRIM(u.email) != ''
+ORDER BY name, email
+"""
+
+FILTER_OPTIONS_CACHE_TTL = 300
+_filter_options_cache = {"expires": 0.0, "data": None}
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -155,9 +220,39 @@ def row_to_json(row):
     }
 
 
-def fetch_equipment(from_date, to_date):
-    start_dt, end_dt, from_s, to_s = parse_range(from_date, to_date)
-    conn = pymysql.connect(
+def like_pattern(value):
+    return f"%{value}%"
+
+
+def parse_filters(creator=None, company=None, part_name=None, paired_by=None):
+    raw = {
+        "creator": (creator or "").strip(),
+        "company": (company or "").strip(),
+        "part_name": (part_name or "").strip(),
+        "paired_by": (paired_by or "").strip(),
+    }
+    return {k: v for k, v in raw.items() if v}
+
+
+def build_query(filters):
+    sql = EQUIPMENT_SQL
+    params = []
+    for key in ("creator", "company", "part_name", "paired_by"):
+        value = filters.get(key)
+        if not value:
+            continue
+        pattern = like_pattern(value)
+        sql += FILTER_SPECS[key]
+        if key in ("creator", "paired_by"):
+            params.extend([pattern, pattern])
+        else:
+            params.append(pattern)
+    sql += ORDER_BY
+    return sql, params
+
+
+def db_connect():
+    return pymysql.connect(
         host=HOST,
         port=PORT,
         user=USER,
@@ -167,10 +262,63 @@ def fetch_equipment(from_date, to_date):
         autocommit=True,
         cursorclass=pymysql.cursors.DictCursor,
     )
+
+
+def person_option(row):
+    name = (row.get("name") or "").strip()
+    email = (row.get("email") or "").strip()
+    if not email:
+        return None
+    if not name:
+        name = email
+    return {"name": name, "email": email}
+
+
+def fetch_filter_options():
+    now = time.time()
+    cached = _filter_options_cache.get("data")
+    if cached is not None and now < _filter_options_cache["expires"]:
+        return cached
+
+    conn = db_connect()
     try:
         with conn.cursor() as cur:
             cur.execute("SET SESSION TRANSACTION READ ONLY")
-            cur.execute(EQUIPMENT_SQL, (start_dt, end_dt))
+            cur.execute(SQL_COMPANIES)
+            companies = [r["name"] for r in cur.fetchall() if r.get("name")]
+            cur.execute(SQL_CREATORS)
+            creators = [
+                o for o in (person_option(r) for r in cur.fetchall()) if o
+            ]
+            cur.execute(SQL_PART_NAMES)
+            part_names = [r["name"] for r in cur.fetchall() if r.get("name")]
+            cur.execute(SQL_PAIRED_BY)
+            paired_by = [
+                o for o in (person_option(r) for r in cur.fetchall()) if o
+            ]
+    finally:
+        conn.close()
+
+    payload = {
+        "companies": companies,
+        "creators": creators,
+        "part_names": part_names,
+        "paired_by": paired_by,
+    }
+    _filter_options_cache["data"] = payload
+    _filter_options_cache["expires"] = now + FILTER_OPTIONS_CACHE_TTL
+    return payload
+
+
+def fetch_equipment(from_date, to_date, filters=None):
+    start_dt, end_dt, from_s, to_s = parse_range(from_date, to_date)
+    filters = filters or {}
+    sql, filter_params = build_query(filters)
+    conn = db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET SESSION TRANSACTION READ ONLY")
+            cur.execute(sql, (start_dt, end_dt, *filter_params))
             rows = cur.fetchall()
     finally:
         conn.close()
@@ -186,7 +334,8 @@ def cors(resp):
 
 
 @app.route("/api/equipment", methods=["OPTIONS"])
-def api_equipment_options():
+@app.route("/api/filter-options", methods=["OPTIONS"])
+def api_options():
     return "", 204
 
 
@@ -207,12 +356,26 @@ def report_js():
     return send_file(JS_PATH, mimetype="application/javascript")
 
 
+@app.get("/api/filter-options")
+def api_filter_options():
+    try:
+        return jsonify(fetch_filter_options())
+    except pymysql.Error as exc:
+        return jsonify({"error": f"Database error: {exc}"}), 500
+
+
 @app.get("/api/equipment")
 def api_equipment():
     from_date = request.args.get("from", "")
     to_date = request.args.get("to", "")
+    filters = parse_filters(
+        creator=request.args.get("creator"),
+        company=request.args.get("company"),
+        part_name=request.args.get("part_name"),
+        paired_by=request.args.get("paired_by"),
+    )
     try:
-        data, from_s, to_s = fetch_equipment(from_date, to_date)
+        data, from_s, to_s = fetch_equipment(from_date, to_date, filters=filters)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except pymysql.Error as exc:
@@ -220,6 +383,7 @@ def api_equipment():
     return jsonify({
         "from": from_s,
         "to": to_s,
+        "filters": filters,
         "count": len(data),
         "rows": data,
     })
