@@ -73,6 +73,10 @@ SELECT
 {_PART_NAME_EXPR} AS part_name
 FROM fieldin.equipment e
 LEFT JOIN fieldin.companies c ON c.id = e.company_id
+LEFT JOIN fieldin.company_properties cp_active
+  ON cp_active.company_id = c.id
+  AND cp_active.name = 'is_active'
+  AND cp_active.latest = 1
 LEFT JOIN fieldin.equipment_manufacturers eman ON eman.id = e.manufacturer_id
 LEFT JOIN (
   SELECT ei2.equipment_id, ei2.device_id, ei2.user_id, ei2.time_from
@@ -112,6 +116,7 @@ FILTER_SPECS = {
         ")"
     ),
     "company": " AND LOWER(COALESCE(c.name,'')) LIKE %s",
+    "company_status": " AND cp_active.value = %s",
     "part_name": f" AND LOWER(COALESCE({_PART_NAME_EXPR.strip()},'')) LIKE %s",
     "paired_by": (
         " AND ("
@@ -160,6 +165,16 @@ WHERE pi.part_display_ns IS NOT NULL AND TRIM(pi.part_display_ns) != ''
   )
 ORDER BY pi.part_display_ns
 """
+
+SQL_COMPANY_STATUS = """
+SELECT DISTINCT cp.value AS value
+FROM fieldin.company_properties cp
+WHERE cp.name = 'is_active' AND cp.latest = 1
+ORDER BY cp.value DESC
+"""
+
+COMPANY_STATUS_API = {"1": "active", "0": "inactive"}
+COMPANY_STATUS_DB = {v: k for k, v in COMPANY_STATUS_API.items()}
 
 SQL_PAIRED_BY = """
 SELECT DISTINCT
@@ -265,12 +280,30 @@ def like_pattern(value):
     return f"%{value}%"
 
 
-def parse_filters(creator=None, company=None, part_name=None, paired_by=None):
+def normalize_company_status(value):
+    value = (value or "").strip().lower()
+    if not value:
+        return ""
+    if value in COMPANY_STATUS_DB:
+        return COMPANY_STATUS_DB[value]
+    if value in COMPANY_STATUS_API:
+        return value
+    return ""
+
+
+def parse_filters(
+    creator=None,
+    company=None,
+    part_name=None,
+    paired_by=None,
+    company_status=None,
+):
     raw = {
         "creator": (creator or "").strip(),
         "company": (company or "").strip(),
         "part_name": (part_name or "").strip(),
         "paired_by": (paired_by or "").strip(),
+        "company_status": normalize_company_status(company_status),
     }
     return {k: v for k, v in raw.items() if v}
 
@@ -278,16 +311,18 @@ def parse_filters(creator=None, company=None, part_name=None, paired_by=None):
 def build_query(filters):
     sql = EQUIPMENT_SQL
     params = []
-    for key in ("creator", "company", "part_name", "paired_by"):
+    for key in ("creator", "company", "part_name", "paired_by", "company_status"):
         value = filters.get(key)
         if not value:
             continue
-        pattern = like_pattern(value)
         sql += FILTER_SPECS[key]
         if key in ("creator", "paired_by"):
+            pattern = like_pattern(value)
             params.extend([pattern, pattern])
+        elif key == "company_status":
+            params.append(value)
         else:
-            params.append(pattern)
+            params.append(like_pattern(value))
     sql += ORDER_BY
     return sql, params
 
@@ -337,6 +372,12 @@ def fetch_filter_options():
             paired_by = [
                 o for o in (person_option(r) for r in cur.fetchall()) if o
             ]
+            cur.execute(SQL_COMPANY_STATUS)
+            company_status = [
+                COMPANY_STATUS_API.get(r["value"])
+                for r in cur.fetchall()
+                if COMPANY_STATUS_API.get(r.get("value"))
+            ]
     finally:
         conn.close()
 
@@ -345,6 +386,7 @@ def fetch_filter_options():
         "creators": creators,
         "part_names": part_names,
         "paired_by": paired_by,
+        "company_status": company_status,
     }
     _filter_options_cache["data"] = payload
     _filter_options_cache["expires"] = now + FILTER_OPTIONS_CACHE_TTL
@@ -414,6 +456,7 @@ def api_equipment():
         company=request.args.get("company"),
         part_name=request.args.get("part_name"),
         paired_by=request.args.get("paired_by"),
+        company_status=request.args.get("company_status"),
     )
     try:
         data, from_s, to_s = fetch_equipment(from_date, to_date, filters=filters)
@@ -421,10 +464,14 @@ def api_equipment():
         return jsonify({"error": str(exc)}), 400
     except pymysql.Error as exc:
         return jsonify({"error": f"Database error: {exc}"}), 500
+    api_filters = {
+        k: (COMPANY_STATUS_API.get(v, v) if k == "company_status" else v)
+        for k, v in filters.items()
+    }
     return jsonify({
         "from": from_s,
         "to": to_s,
-        "filters": filters,
+        "filters": api_filters,
         "count": len(data),
         "rows": data,
     })

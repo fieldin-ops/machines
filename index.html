@@ -150,7 +150,7 @@
   }
   .filter-panel-grid {
     display: grid;
-    grid-template-columns: minmax(220px, 1.4fr) repeat(4, minmax(160px, 1fr));
+    grid-template-columns: minmax(220px, 1.4fr) repeat(5, minmax(160px, 1fr));
     gap: 14px 16px;
     align-items: end;
   }
@@ -420,6 +420,12 @@
         <label for="filter-company">Company</label>
         <input type="text" id="filter-company" list="company-list" placeholder="All" autocomplete="off" disabled>
         <datalist id="company-list"></datalist>
+      </div>
+      <div class="filter-field">
+        <label for="filter-company-status">Company status</label>
+        <select id="filter-company-status" disabled>
+          <option value="">All</option>
+        </select>
       </div>
       <div class="filter-field">
         <label for="filter-creator">Machine creator</label>

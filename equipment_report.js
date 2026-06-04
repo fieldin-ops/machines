@@ -311,11 +311,13 @@ function getApiBase() {
 
 function filterParams() {
   const company = document.getElementById('filter-company').value.trim();
+  const companyStatus = document.getElementById('filter-company-status').value.trim();
   const creator = document.getElementById('filter-creator').value.trim();
   const partName = document.getElementById('filter-part-name').value.trim();
   const pairedBy = document.getElementById('filter-paired-by').value.trim();
   const params = new URLSearchParams();
   if (company) params.set('company', company);
+  if (companyStatus) params.set('company_status', companyStatus);
   if (creator) params.set('creator', creator);
   if (partName) params.set('part_name', partName);
   if (pairedBy) params.set('paired_by', pairedBy);
@@ -369,8 +371,21 @@ function fillPartSelect(names) {
   }
 }
 
+const COMPANY_STATUS_LABELS = { active: 'Active', inactive: 'Inactive' };
+
+function fillCompanyStatusSelect(statuses) {
+  const sel = document.getElementById('filter-company-status');
+  sel.innerHTML = '<option value="">All</option>';
+  for (const status of statuses) {
+    const opt = document.createElement('option');
+    opt.value = status;
+    opt.textContent = COMPANY_STATUS_LABELS[status] || status;
+    sel.appendChild(opt);
+  }
+}
+
 function setFiltersEnabled(enabled) {
-  ['filter-company', 'filter-creator', 'filter-part-name', 'filter-paired-by'].forEach(id => {
+  ['filter-company', 'filter-company-status', 'filter-creator', 'filter-part-name', 'filter-paired-by'].forEach(id => {
     document.getElementById(id).disabled = !enabled;
   });
 }
@@ -389,13 +404,16 @@ async function loadFilterOptions() {
     fillDatalist('company-list', body.companies || []);
     fillPersonDatalist('creator-list', body.creators || []);
     fillPartSelect(body.part_names || []);
+    fillCompanyStatusSelect(body.company_status || []);
     fillPersonDatalist('paired-by-list', body.paired_by || []);
     const nCo = (body.companies || []).length;
+    const nCs = (body.company_status || []).length;
     const nCr = (body.creators || []).length;
     const nPn = (body.part_names || []).length;
     const nPb = (body.paired_by || []).length;
     status.textContent =
-      nCo + ' companies · ' + nCr + ' creators · ' + nPn + ' part names · ' + nPb + ' paired-by users';
+      nCo + ' companies · ' + nCs + ' statuses · ' + nCr + ' creators · ' +
+      nPn + ' part names · ' + nPb + ' paired-by users';
     setFiltersEnabled(true);
     return body;
   } catch (err) {
