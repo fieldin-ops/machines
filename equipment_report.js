@@ -403,7 +403,7 @@ function rowMatches(row, q) {
   if (!q) return true;
   const searchKeys = [
     'equipment_id', 'alias', 'type', 'classification', 'company_name', 'ownership',
-    'manufacturer', 'model', 'plate', 'serial_number', 'created_at',
+    'manufacturer', 'model', 'serial_number', 'created_at',
     'creator_name', 'creator_email', 'last_paired_device', 'part_name',
     'paired_by_name', 'paired_by_email', 'paired_at'
   ];
@@ -445,7 +445,6 @@ function rowHtml(row) {
     '<td>' + esc(row.ownership) + '</td>' +
     '<td>' + esc(row.manufacturer) + '</td>' +
     '<td>' + esc(row.model) + '</td>' +
-    '<td>' + esc(row.plate) + '</td>' +
     '<td>' + esc(row.serial_number) + '</td>' +
     '<td class="num">' + esc(row.created_at) + '</td>' +
     '<td>' + creatorCell(row) + '</td>' +
