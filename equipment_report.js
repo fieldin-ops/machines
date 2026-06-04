@@ -1,6 +1,239 @@
 const DEFAULT_API_BASE = 'http://127.0.0.1:5555';
 const API_STORAGE_KEY = 'equipment_report_api_base';
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+function parseIsoDate(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function toIsoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
+function sameDay(a, b) {
+  return a && b && a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function startOfDay(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function formatDisplayDate(d) {
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatRangeDisplay(from, to) {
+  if (!from || !to) return '';
+  return formatDisplayDate(from) + ' – ' + formatDisplayDate(to);
+}
+
+/** Vanilla JS calendar range picker — no external deps */
+const DateRangePicker = {
+  start: null,
+  end: null,
+  hover: null,
+  pendingStart: null,
+  viewMonth: null,
+  open: false,
+
+  init() {
+    this.wrap = document.getElementById('date-range-picker');
+    this.display = document.getElementById('date-range-display');
+    this.popup = document.getElementById('date-range-popup');
+    this.inputFrom = document.getElementById('date-from');
+    this.inputTo = document.getElementById('date-to');
+    this.calLeft = document.getElementById('dr-cal-left');
+    this.calRight = document.getElementById('dr-cal-right');
+    this.titleLeft = document.getElementById('dr-title-left');
+    this.titleRight = document.getElementById('dr-title-right');
+    this.hint = document.getElementById('dr-hint');
+
+    const today = startOfDay(new Date());
+    this.viewMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    this.display.addEventListener('click', e => {
+      e.stopPropagation();
+      this.togglePopup(!this.open);
+    });
+    document.getElementById('dr-prev').addEventListener('click', e => {
+      e.stopPropagation();
+      this.shiftView(-1);
+    });
+    document.getElementById('dr-next').addEventListener('click', e => {
+      e.stopPropagation();
+      this.shiftView(1);
+    });
+    document.addEventListener('click', e => {
+      if (!this.wrap.contains(e.target)) this.togglePopup(false);
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') this.togglePopup(false);
+    });
+  },
+
+  setRange(fromDate, toDate) {
+    this.start = fromDate ? startOfDay(fromDate) : null;
+    this.end = toDate ? startOfDay(toDate) : null;
+    this.pendingStart = null;
+    this.syncInputs();
+    this.render();
+  },
+
+  syncInputs() {
+    const fromIso = this.start ? toIsoDate(this.start) : '';
+    const toIso = this.end ? toIsoDate(this.end) : '';
+    this.inputFrom.value = fromIso;
+    this.inputTo.value = toIso;
+    this.display.value = formatRangeDisplay(this.start, this.end);
+  },
+
+  togglePopup(show) {
+    const next = show !== undefined ? show : !this.open;
+    this.open = next;
+    this.popup.classList.toggle('open', next);
+    this.display.setAttribute('aria-expanded', String(next));
+    if (next) {
+      if (this.end) {
+        this.viewMonth = new Date(this.end.getFullYear(), this.end.getMonth(), 1);
+        this.viewMonth.setMonth(this.viewMonth.getMonth() - 1);
+      }
+      this.pendingStart = null;
+      this.updateHint();
+      this.render();
+    }
+  },
+
+  shiftView(delta) {
+    this.viewMonth.setMonth(this.viewMonth.getMonth() + delta);
+    this.render();
+  },
+
+  updateHint() {
+    if (this.pendingStart) {
+      this.hint.textContent = 'Now click an end date (or click again to change start)';
+    } else if (this.start && this.end) {
+      this.hint.textContent = formatRangeDisplay(this.start, this.end) + ' · Click dates to change';
+    } else {
+      this.hint.textContent = 'Click a start date, then an end date';
+    }
+  },
+
+  onDayClick(date) {
+    const day = startOfDay(date);
+    if (!this.pendingStart) {
+      this.pendingStart = day;
+      this.start = day;
+      this.end = null;
+      this.hover = null;
+      this.updateHint();
+      this.render();
+      return;
+    }
+    let a = this.pendingStart;
+    let b = day;
+    if (b < a) [a, b] = [b, a];
+    this.start = a;
+    this.end = b;
+    this.pendingStart = null;
+    this.hover = null;
+    this.syncInputs();
+    this.updateHint();
+    this.render();
+    this.togglePopup(false);
+  },
+
+  onDayHover(date) {
+    if (!this.pendingStart) return;
+    this.hover = startOfDay(date);
+    this.render();
+  },
+
+  dayClass(date, inMonth) {
+    const classes = ['dr-day'];
+    if (!inMonth) classes.push('other-month');
+    const today = startOfDay(new Date());
+    if (sameDay(date, today)) classes.push('today');
+
+    const rangeStart = this.pendingStart || this.start;
+    const rangeEnd = this.pendingStart ? (this.hover || this.pendingStart) : this.end;
+    if (!rangeStart) return classes.join(' ');
+
+    let a = rangeStart;
+    let b = rangeEnd || rangeStart;
+    if (b < a) [a, b] = [b, a];
+    const t = date.getTime();
+    const ta = a.getTime();
+    const tb = b.getTime();
+    if (t >= ta && t <= tb) classes.push('in-range');
+    if (sameDay(date, a)) classes.push('range-start');
+    if (sameDay(date, b)) classes.push('range-end');
+    return classes.join(' ');
+  },
+
+  buildMonthGrid(year, month) {
+    const first = new Date(year, month, 1);
+    const startPad = first.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrev = new Date(year, month, 0).getDate();
+    const cells = [];
+
+    for (let i = startPad - 1; i >= 0; i--) {
+      const d = daysInPrev - i;
+      cells.push({ date: new Date(year, month - 1, d), inMonth: false });
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push({ date: new Date(year, month, d), inMonth: true });
+    }
+    let next = 1;
+    while (cells.length < 42) {
+      cells.push({ date: new Date(year, month + 1, next++), inMonth: false });
+    }
+    return cells;
+  },
+
+  renderMonth(container, year, month) {
+    const weekdays = '<div class="dr-weekdays">' +
+      WEEKDAY_LABELS.map(w => '<span class="dr-weekday">' + w + '</span>').join('') +
+      '</div>';
+    const cells = this.buildMonthGrid(year, month);
+    const days = cells.map(({ date, inMonth }) => {
+      const label = date.getDate();
+      const cls = this.dayClass(date, inMonth);
+      return '<button type="button" class="' + cls + '" data-iso="' + toIsoDate(date) + '">' + label + '</button>';
+    }).join('');
+    container.innerHTML = weekdays + '<div class="dr-days">' + days + '</div>';
+    container.querySelectorAll('.dr-day').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        this.onDayClick(parseIsoDate(btn.dataset.iso));
+      });
+      btn.addEventListener('mouseenter', () => {
+        this.onDayHover(parseIsoDate(btn.dataset.iso));
+      });
+    });
+  },
+
+  render() {
+    const left = new Date(this.viewMonth);
+    const right = new Date(this.viewMonth.getFullYear(), this.viewMonth.getMonth() + 1, 1);
+    this.titleLeft.textContent = MONTH_NAMES[left.getMonth()] + ' ' + left.getFullYear();
+    this.titleRight.textContent = MONTH_NAMES[right.getMonth()] + ' ' + right.getFullYear();
+    this.renderMonth(this.calLeft, left.getFullYear(), left.getMonth());
+    this.renderMonth(this.calRight, right.getFullYear(), right.getMonth());
+  }
+};
+
 let DATA = [];
 let sortKey = 'created_at';
 let sortDir = -1;
@@ -312,16 +545,16 @@ document.querySelectorAll('thead th').forEach(th => {
 
 document.getElementById('fetch-btn').addEventListener('click', fetchData);
 
-(function setDefaultDates() {
-  const to = new Date();
-  const from = new Date();
+function setDefaultDates() {
+  const to = startOfDay(new Date());
+  const from = new Date(to);
   from.setDate(from.getDate() - 3);
-  const fmt = d => d.toISOString().slice(0, 10);
-  document.getElementById('date-from').value = fmt(from);
-  document.getElementById('date-to').value = fmt(to);
-})();
+  DateRangePicker.init();
+  DateRangePicker.setRange(from, to);
+}
 
 (async function init() {
+  setDefaultDates();
   await loadFilterOptions();
   fetchData();
 })();
