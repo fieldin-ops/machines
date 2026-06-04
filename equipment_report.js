@@ -425,7 +425,11 @@ function personCell(nameKey, emailKey) {
   };
 }
 
-const creatorCell = personCell('creator_name', 'creator_email');
+const creatorCell = function(row) {
+  const name = row.creator_name;
+  if (!name || name === '—') return '<span class="pairer empty">—</span>';
+  return '<span class="pairer">' + esc(name) + '</span>';
+};
 const pairedByCell = personCell('paired_by_name', 'paired_by_email');
 
 function rowHtml(row) {
