@@ -1,5 +1,12 @@
-const DEFAULT_API_BASE = 'https://machines-api-629318127645.europe-west1.run.app';
+const PRODUCTION_API_BASE = 'https://machines-api-629318127645.europe-west1.run.app';
+const LOCAL_API_BASE = 'http://127.0.0.1:5555';
 const API_STORAGE_KEY = 'equipment_report_api_base';
+
+function defaultApiBase() {
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') return LOCAL_API_BASE;
+  return PRODUCTION_API_BASE;
+}
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -417,7 +424,7 @@ function getApiBase() {
     const stored = localStorage.getItem(API_STORAGE_KEY);
     if (stored) return normalizeApiBase(stored);
   } catch (_) { /* private mode */ }
-  return DEFAULT_API_BASE;
+  return defaultApiBase();
 }
 
 function filterParams() {
