@@ -1,8 +1,0 @@
-*.html
-*.js
-*.css
-.git
-.env
-__pycache__
-README.md
-start_equipment_server.sh
